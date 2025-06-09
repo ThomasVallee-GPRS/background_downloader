@@ -520,14 +520,35 @@ open class TaskWorker(
             } as HttpURLConnection) {
                 requestMethod = task.httpRequestMethod
                 connectTimeout = requestTimeoutSeconds * 1000
+                val sharedPrefs = applicationContext.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                val injectCookie = task.headers["X-Inject-Cookie"] == "true"
                 for (header in task.headers) {
+                    // Skip our internal flag so it's not sent to the server
+                    if (header.key == "X-Inject-Cookie") {
+                        continue
+                    }
+
                     // For UploadTask, copy headers unless it's "Range" or "Content-Disposition".
-                    // For other task types, copy all headers.
+                    // For other task types, copy all headers. This logic is preserved from the original.
                     if (!task.isUploadTask() ||
                         (!header.key.equals("Range", ignoreCase = true) &&
                                 !header.key.equals("Content-Disposition", ignoreCase = true))
                     ) {
                         setRequestProperty(header.key, header.value)
+                    }
+                }
+
+                if (injectCookie) {
+                    // Read the cookie from SharedPreferences
+                    // The Flutter plugin automatically prepends "flutter." to the key.
+                    val storedCookie = sharedPrefs.getString("flutter.app_session_cookie", null)
+
+                    if (storedCookie != null) {
+                        // Add the retrieved cookie to the actual request header
+                        setRequestProperty("Cookie", storedCookie)
+                        Log.d("TaskWorker", "Successfully injected cookie from SharedPreferences.")
+                    } else {
+                        Log.w("TaskWorker", "X-Inject-Cookie flag was set, but no cookie found in SharedPreferences.")
                     }
                 }
                 return connectAndProcess(this)
